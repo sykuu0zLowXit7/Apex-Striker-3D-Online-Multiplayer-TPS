@@ -1,0 +1,6 @@
+{
+  "name": "Apex Striker 3D - Online Multiplayer TPS",
+  "description": "Videojuego shooter multijugador online en tercera persona 3D con Three.js, físicas de combate, jetpack, 3 mapas dinámicos, armería y backend Socket.IO.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

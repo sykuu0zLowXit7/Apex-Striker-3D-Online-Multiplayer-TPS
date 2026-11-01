@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Apex Striker 3D - Standalone Render Edition</title>
+  <!-- Three.js & Socket.IO CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body, html { width: 100%; height: 100%; overflow: hidden; background: #07090e; font-family: 'Rajdhani', sans-serif; color: #f1f5f9; }
+    #canvas-container { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; }
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+    .neon-text { text-shadow: 0 0 10px rgba(56, 189, 248, 0.7), 0 0 20px rgba(56, 189, 248, 0.4); }
+    .btn-cyber {
+      background: linear-gradient(135deg, rgba(14, 165, 233, 0.8), rgba(2, 132, 199, 0.9));
+      color: white; font-weight: 700; border: 1px solid #38bdf8;
+      border-radius: 8px; padding: 10px 20px; cursor: pointer; transition: all 0.2s;
+      text-transform: uppercase; letter-spacing: 1px; font-family: 'Chakra Petch', sans-serif;
+    }
+    .btn-cyber:hover { transform: translateY(-2px); box-shadow: 0 0 15px rgba(56, 189, 248, 0.6); }
+    .btn-cyber:active { transform: translateY(0); }
+    .btn-dark {
+      background: rgba(30, 41, 59, 0.8); color: #cbd5e1; border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px; padding: 10px 18px; cursor: pointer; transition: all 0.2s; font-family: 'Chakra Petch', sans-serif;
+    }
+    .btn-dark:hover { background: rgba(51, 65, 85, 0.9); color: white; border-color: #38bdf8; }
+
+    /* Crosshair */
+    #crosshair {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 28px; height: 28px; pointer-events: none; z-index: 10;
+    }
+    #crosshair::before, #crosshair::after {
+      content: ''; position: absolute; background: rgba(56, 189, 248, 0.9);
+      box-shadow: 0 0 4px #38bdf8;
+    }
+    #crosshair::before { top: 13px; left: 0; width: 28px; height: 2px; }
+    #crosshair::after { top: 0; left: 13px; width: 2px; height: 28px; }
+    #crosshair-dot {
+      position: absolute; top: 12px; left: 12px; width: 4px; height: 4px;
+      background: #f43f5e; border-radius: 50%;
+    }
+
+    /* Screen vignettes */
+    #damage-vignette {
+      position: absolute; inset: 0; pointer-events: none; z-index: 5;
+      background: radial-gradient(circle, transparent 60%, rgba(239, 68, 68, 0.6) 100%);
+      opacity: 0; transition: opacity 0.15s ease-out;
+    }
+    #sprint-vignette {
+      position: absolute; inset: 0; pointer-events: none; z-index: 5;
+      background: radial-gradient(circle, transparent 65%, rgba(56, 189, 248, 0.25) 100%);
+      opacity: 0; transition: opacity 0.2s ease-out;
+    }
+
+    /* HUD overlays */
+    #hud-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 10; display: none; }
+    .interactive-ui { pointer-events: auto; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); }
+    ::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.4); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+  <!-- 3D Canvas Mount -->
+  <div id="canvas-container"></div>
+
+  <!-- Screen FX -->
+  <div id="damage-vignette"></div>
+  <div id="sprint-vignette"></div>
+
+  <!-- In-game Crosshair -->
+  <div id="crosshair">
+    <div id="crosshair-dot"></div>
+  </div>
+
+  <!-- IN-GAME HUD -->
+  <div id="hud-overlay">
+    <!-- Top Center CS:GO Scoreboard Bar -->
+    <div style="position: absolute; top: 16px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(148, 163, 184, 0.4); border-radius: 4px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.6);">
+      <div style="background: rgba(3, 105, 161, 0.7); padding: 4px 12px; font-weight: bold; font-size: 13px; color: #7dd3fc;">CT 5</div>
+      <div style="padding: 4px 14px; text-align: center; border-left: 1px solid rgba(255,255,255,0.1); border-right: 1px solid rgba(255,255,255,0.1);">
+        <div style="font-size: 11px; color: #94a3b8; font-family: monospace;">1:50</div>
+        <div style="font-size: 12px; font-weight: bold; color: white;">0 : 0</div>
+      </div>
+      <div style="background: rgba(180, 83, 9, 0.7); padding: 4px 12px; font-weight: bold; font-size: 13px; color: #fde68a;">T 5</div>
+    </div>
+
+    <!-- Top Right Circular Radar & Money Indicator -->
+    <div style="position: absolute; top: 16px; right: 24px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+      <div style="width: 140px; height: 140px; background: rgba(15, 23, 42, 0.88); border: 2px solid rgba(148, 163, 184, 0.5); border-radius: 50%; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.7); position: relative;">
+        <canvas id="minimap-canvas" width="140" height="140"></canvas>
+        <span style="position: absolute; top: 8px; left: 16px; font-size: 10px; font-weight: bold; color: #f59e0b; font-family: monospace;">B</span>
+        <span style="position: absolute; top: 20px; right: 16px; font-size: 10px; font-weight: bold; color: #10b981; font-family: monospace;">A</span>
+      </div>
+      <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(148, 163, 184, 0.3); padding: 4px 12px; border-radius: 4px; font-family: monospace; font-size: 13px; font-weight: bold; color: #10b981;">
+        $16,000 🛒
+      </div>
+    </div>
+
+    <!-- Top Left Status -->
+    <div style="position: absolute; top: 20px; left: 24px; display: flex; align-items: center; gap: 10px;">
+      <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(148, 163, 184, 0.4); padding: 4px 10px; border-radius: 4px; font-size: 11px; font-family: monospace; color: #94a3b8;">
+        CT Start
+      </div>
+      <div id="hud-ping" style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 4px; font-size: 11px; font-family: monospace; color: #4ade80;">
+        PING: 18ms
+      </div>
+    </div>
+
+    <!-- Top Right Killfeed -->
+    <div style="position: absolute; top: 180px; right: 24px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+      <div id="killfeed-container" style="display: flex; flex-direction: column; gap: 4px; max-width: 280px;"></div>
+    </div>
+
+    <!-- Bottom Left: Health (+ 100) and Armor (🛡️ 100) -->
+    <div style="position: absolute; bottom: 20px; left: 24px; display: flex; align-items: center; gap: 24px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 26px; font-weight: 900; color: white; font-family: monospace;">+</span>
+        <div style="display: flex; flex-direction: column;">
+          <span id="hud-health-val" style="font-size: 32px; font-weight: 900; color: white; font-family: monospace; line-height: 1;">100</span>
+          <div style="width: 70px; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; margin-top: 3px; overflow: hidden;">
+            <div id="hud-health-bar" style="width: 100%; height: 100%; background: white;"></div>
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <span style="font-size: 20px;">🛡️</span>
+        <span id="hud-shield-val" style="font-size: 26px; font-weight: 900; color: white; font-family: monospace; line-height: 1;">100</span>
+      </div>
+    </div>
+
+    <!-- Bottom Right: Ammo 7 / 35 ///// -->
+    <div style="position: absolute; bottom: 20px; right: 24px; display: flex; align-items: baseline; gap: 8px;">
+      <span id="hud-ammo-current" style="font-size: 40px; font-weight: 900; color: white; font-family: monospace; line-height: 1;">7</span>
+      <span style="font-size: 20px; font-weight: bold; color: #94a3b8; font-family: monospace;">/</span>
+      <span id="hud-ammo-reserve" style="font-size: 20px; font-weight: bold; color: #94a3b8; font-family: monospace;">35</span>
+      <span style="font-size: 14px; font-weight: 900; color: #94a3b8; font-family: monospace; letter-spacing: -2px; margin-left: 4px;">/////</span>
+    </div>
+  </div>
+
+  <!-- DEATH & RESPAWN MODAL -->
+  <div id="death-modal" style="position: absolute; inset: 0; background: rgba(7, 10, 18, 0.85); z-index: 30; display: none; align-items: center; justify-content: center; flex-direction: column;">
+    <div class="glass-panel" style="padding: 40px; text-align: center; max-width: 420px; border-color: #ef4444;">
+      <h2 style="font-size: 32px; color: #ef4444; font-family: 'Chakra Petch', sans-serif; margin-bottom: 8px;">HAS SIDO ELIMINADO</h2>
+      <p id="death-killer-text" style="color: #cbd5e1; margin-bottom: 24px;">Eliminado por Rival en combate</p>
+      <div style="font-size: 18px; color: #94a3b8; margin-bottom: 16px;">REAPARICIÓN EN:</div>
+      <div id="respawn-countdown" style="font-size: 54px; font-weight: 700; color: #38bdf8; font-family: 'Chakra Petch', sans-serif; margin-bottom: 20px;">3</div>
+      <p style="font-size: 13px; color: #64748b;">La cámara ha entrado en modo espectador táctico</p>
+    </div>
+  </div>
+
+  <!-- MAIN MENU MODAL -->
+  <div id="main-menu" style="position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at center, rgba(15, 23, 42, 0.7) 0%, rgba(7, 9, 14, 0.95) 100%);">
+    <div class="glass-panel" style="width: min(880px, 92vw); max-height: 90vh; overflow-y: auto; padding: 32px; position: relative;">
+      
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; border-bottom: 1px solid rgba(56, 189, 248, 0.2); padding-bottom: 16px;">
+        <div>
+          <h1 class="neon-text" style="font-size: 36px; font-family: 'Chakra Petch', sans-serif; font-weight: 700; color: #38bdf8; letter-spacing: 2px;">APEX STRIKER 3D</h1>
+          <p style="color: #94a3b8; font-size: 15px;">Shooter Multijugador Online en Tiempo Real // Render Engine Edition</p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <div style="background: rgba(30, 41, 59, 0.6); padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(251, 191, 36, 0.3);">
+            <span style="color: #94a3b8; font-size: 12px;">CRÉDITOS:</span>
+            <span id="menu-credits-val" style="color: #fbbf24; font-weight: 700; font-size: 18px; margin-left: 6px;">500 CR</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div style="display: flex; gap: 8px; margin-bottom: 24px;">
+        <button id="tab-btn-play" class="btn-cyber" onclick="switchMenuTab('play')">⚡ JUGAR RÁPIDO</button>
+        <button id="tab-btn-servers" class="btn-dark" onclick="switchMenuTab('servers')">🌐 LISTA DE SERVIDORES</button>
+        <button id="tab-btn-armory" class="btn-dark" onclick="switchMenuTab('armory')">🔫 ARMERÍA & SKINS</button>
+        <button id="tab-btn-settings" class="btn-dark" onclick="switchMenuTab('settings')">⚙️ CONTROLES & CONFIG</button>
+      </div>
+
+      <!-- TAB 1: QUICK PLAY & NICKNAME -->
+      <div id="tab-content-play" style="display: block;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+          <div style="background: rgba(15, 23, 42, 0.6); padding: 20px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08);">
+            <h3 style="color: #38bdf8; font-family: 'Chakra Petch', sans-serif; font-size: 18px; margin-bottom: 12px;">PERFIL DE COMBATIENTE</h3>
+            <label style="display: block; font-size: 13px; color: #94a3b8; margin-bottom: 6px;">NOMBRE DE USUARIO:</label>
+            <input id="input-player-name" type="text" value="Striker-One" maxlength="16" style="width: 100%; background: #0b0f19; border: 1px solid rgba(56, 189, 248, 0.4); color: white; padding: 10px 14px; border-radius: 8px; font-size: 16px; margin-bottom: 16px; outline: none;">
+            
+            <label style="display: block; font-size: 13px; color: #94a3b8; margin-bottom: 6px;">MAPA PREFERIDO:</label>
+            <select id="select-play-map" style="width: 100%; background: #0b0f19; border: 1px solid rgba(56, 189, 248, 0.4); color: white; padding: 10px 14px; border-radius: 8px; font-size: 15px; margin-bottom: 20px; outline: none;">
+              <option value="cyber_city">Cyber City (Metrópolis Nocturna & Neones)</option>
+              <option value="jungle_outpost">Jungle Outpost (Ruinas Antiguas & Selva Densa)</option>
+              <option value="desert_canyon">Desert Canyon (Cañón Árido & Tormenta de Arena)</option>
+            </select>
+
+            <button class="btn-cyber" style="width: 100%; padding: 14px; font-size: 16px;" onclick="startQuickPlay()">
+              ENTRAR AL CAMPO DE BATALLA
+            </button>
+          </div>
+
+          <div style="background: rgba(15, 23, 42, 0.6); padding: 20px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08);">
+            <h3 style="color: #38bdf8; font-family: 'Chakra Petch', sans-serif; font-size: 18px; margin-bottom: 12px;">CREAR NUEVA SALA</h3>
+            <label style="display: block; font-size: 13px; color: #94a3b8; margin-bottom: 6px;">NOMBRE DE SALA:</label>
+            <input id="create-room-name" type="text" value="Arena Alfa 2026" maxlength="20" style="width: 100%; background: #0b0f19; border: 1px solid rgba(255,255,255,0.15); color: white; padding: 8px 12px; border-radius: 8px; font-size: 14px; margin-bottom: 12px; outline: none;">
+
+            <label style="display: block; font-size: 13px; color: #94a3b8; margin-bottom: 6px;">SELECCIÓN DE MAPA:</label>
+            <select id="create-room-map" style="width: 100%; background: #0b0f19; border: 1px solid rgba(255,255,255,0.15); color: white; padding: 8px 12px; border-radius: 8px; font-size: 14px; margin-bottom: 12px; outline: none;">
+              <option value="cyber_city">Cyber City</option>
+              <option value="jungle_outpost">Jungle Outpost</option>
+              <option value="desert_canyon">Desert Canyon</option>
+            </select>
+
+            <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+              <div style="flex: 1;">
+                <label style="display: block; font-size: 12px; color: #94a3b8; margin-bottom: 4px;">JUGADORES MÁX:</label>
+                <select id="create-room-max" style="width: 100%; background: #0b0f19; border: 1px solid rgba(255,255,255,0.15); color: white; padding: 6px 10px; border-radius: 6px; font-size: 13px;">
+                  <option value="4">4 Jugadores</option>
+                  <option value="8" selected>8 Jugadores</option>
+                  <option value="12">12 Jugadores</option>
+                  <option value="16">16 Jugadores</option>
+                </select>
+              </div>
+              <div style="flex: 1;">
+                <label style="display: block; font-size: 12px; color: #94a3b8; margin-bottom: 4px;">BOTS DE PRÁCTICA:</label>
+                <select id="create-room-bots" style="width: 100%; background: #0b0f19; border: 1px solid rgba(255,255,255,0.15); color: white; padding: 6px 10px; border-radius: 6px; font-size: 13px;">
+                  <option value="true" selected>Habilitados</option>
+                  <option value="false">Deshabilitados</option>
+                </select>
+              </div>
+            </div>
+
+            <button class="btn-dark" style="width: 100%; padding: 12px; border-color: #38bdf8;" onclick="createCustomRoom()">
+              + CREAR Y PUBLICAR SALA
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: SERVER LIST -->
+      <div id="tab-content-servers" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+          <h3 style="color: #38bdf8; font-family: 'Chakra Petch', sans-serif;">SERVIDORES ACTIVOS EN TIEMPO REAL</h3>
+          <button class="btn-dark" style="padding: 6px 14px; font-size: 13px;" onclick="refreshServerList()">🔄 ACTUALIZAR</button>
+        </div>
+        <div id="server-list-table" style="max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+
+      <!-- TAB 3: ARMORY & WEAPON SKINS -->
+      <div id="tab-content-armory" style="display: none;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+          <!-- Weapons Grid -->
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div class="armory-card glass-panel" style="padding: 12px; cursor: pointer; border-color: #38bdf8;" onclick="selectWeaponShop('ar')">
+              <div style="display: flex; justify-content: space-between; font-weight: 700; color: #38bdf8;">
+                <span>Pulse AR-4 (Rifle de Asalto)</span><span>EQUIPADO</span>
+              </div>
+              <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Daño: 26 · Cadencia: 110ms · Cargador: 30 balas</div>
+            </div>
+            <div class="armory-card glass-panel" style="padding: 12px; cursor: pointer;" onclick="selectWeaponShop('shotgun')">
+              <div style="display: flex; justify-content: space-between; font-weight: 700; color: #f97316;">
+                <span>Vortex-12 (Escopeta)</span><span id="shop-badge-shotgun">450 CR</span>
+              </div>
+              <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Daño: 8x14 (112) · Dispersión Alta · Cargador: 8 cartuchos</div>
+            </div>
+            <div class="armory-card glass-panel" style="padding: 12px; cursor: pointer;" onclick="selectWeaponShop('smg')">
+              <div style="display: flex; justify-content: space-between; font-weight: 700; color: #a855f7;">
+                <span>Neon Spectre (Subfusil)</span><span id="shop-badge-smg">350 CR</span>
+              </div>
+              <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Daño: 17 · Cadencia: 70ms · Cargador: 40 balas</div>
+            </div>
+            <div class="armory-card glass-panel" style="padding: 12px; cursor: pointer;" onclick="selectWeaponShop('sniper')">
+              <div style="display: flex; justify-content: space-between; font-weight: 700; color: #eab308;">
+                <span>Hyperion-50 (Francotirador)</span><span id="shop-badge-sniper">800 CR</span>
+              </div>
+              <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Daño: 90 (Headshot 135) · Zoom Óptico Máximo · Cargador: 5</div>
+            </div>
+          </div>
+
+          <!-- Preview & Purchase Panel -->
+          <div style="background: rgba(15, 23, 42, 0.6); padding: 18px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <h3 id="shop-preview-title" style="color: #38bdf8; font-family: 'Chakra Petch', sans-serif; font-size: 20px; margin-bottom: 6px;">PULSE AR-4</h3>
+              <p id="shop-preview-desc" style="font-size: 14px; color: #cbd5e1; margin-bottom: 16px;">Rifle de asalto de energía cinética balanceado para combate medio y cercano.</p>
+              
+              <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; font-size: 13px;">
+                <div style="display: flex; justify-content: space-between; color: #94a3b8;">
+                  <span>Potencia de Impacto</span><span id="shop-stat-dmg" style="color: white; font-weight: 700;">26 HP</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; color: #94a3b8;">
+                  <span>Cadencia de Fuego</span><span id="shop-stat-rate" style="color: white; font-weight: 700;">110 ms</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; color: #94a3b8;">
+                  <span>Alcance Efectivo</span><span id="shop-stat-range" style="color: white; font-weight: 700;">120 m</span>
+                </div>
+              </div>
+            </div>
+
+            <button id="shop-action-btn" class="btn-cyber" style="width: 100%;" onclick="buyOrEquipSelectedWeapon()">
+              EQUIPAR ARMA
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 4: SETTINGS & CONTROLS -->
+      <div id="tab-content-settings" style="display: none;">
+        <div style="background: rgba(15, 23, 42, 0.6); padding: 20px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08);">
+          <h3 style="color: #38bdf8; font-family: 'Chakra Petch', sans-serif; margin-bottom: 16px;">GUÍA DE CONTROLES TÁCTICOS</h3>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; font-size: 14px;">
+            <div style="padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px;">
+              <span style="color: #38bdf8; font-weight: 700;">W, A, S, D</span>: Desplazamiento respecto a cámara
+            </div>
+            <div style="padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px;">
+              <span style="color: #38bdf8; font-weight: 700;">SHIFT</span>: Sprint (Aceleración y partículas)
+            </div>
+            <div style="padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px;">
+              <span style="color: #38bdf8; font-weight: 700;">ESPACIO</span>: Saltar con impulso de gravedad
+            </div>
+            <div style="padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px;">
+              <span style="color: #38bdf8; font-weight: 700;">TECLA J o E</span>: Activar Jetpack propulsor
+            </div>
+            <div style="padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px;">
+              <span style="color: #38bdf8; font-weight: 700;">CLICK IZQUIERDO</span>: Disparar arma
+            </div>
+            <div style="padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px;">
+              <span style="color: #38bdf8; font-weight: 700;">CLICK DERECHO</span>: Apuntar con mira (ADS Zoom)
+            </div>
+            <div style="padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px;">
+              <span style="color: #38bdf8; font-weight: 700;">TECLA R</span>: Recargar munición
+            </div>
+            <div style="padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px;">
+              <span style="color: #38bdf8; font-weight: 700;">RATÓN</span>: Giro de cámara 360° (PointerLock)
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- GAME CLIENT JAVASCRIPT LOGIC -->
+  <script>
+    // Audio engine using Web Audio API
+    class ProceduralAudio {
+      constructor() {
+        this.ctx = null;
+        this.master = null;
+      }
+      init() {
+        if (this.ctx) return;
+        const AC = window.AudioContext || window.webkitAudioContext;
+        this.ctx = new AC();
+        this.master = this.ctx.createGain();
+        this.master.gain.value = 0.5;
+        this.master.connect(this.ctx.destination);
+      }
+      playShoot(type) {
+        if (!this.ctx) this.init();
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        if (type === 'shotgun') {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(120, t);
+          osc.frequency.exponentialRampToValueAtTime(20, t + 0.3);
+          g.gain.setValueAtTime(0.8, t);
+          g.gain.exponentialRampToValueAtTime(0.01, t + 0.3);
+        } else if (type === 'sniper') {
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(340, t);
+          osc.frequency.exponentialRampToValueAtTime(30, t + 0.5);
+          g.gain.setValueAtTime(1.0, t);
+          g.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
+        } else {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(240, t);
+          osc.frequency.exponentialRampToValueAtTime(50, t + 0.12);
+          g.gain.setValueAtTime(0.5, t);
+          g.gain.exponentialRampToValueAtTime(0.01, t + 0.12);
+        }
+        osc.connect(g);
+        g.connect(this.master);
+        osc.start(t);
+        osc.stop(t + (type === 'sniper' ? 0.5 : 0.3));
+      }
+      playHit() {
+        if (!this.ctx) this.init();
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.frequency.setValueAtTime(900, t);
+        osc.frequency.exponentialRampToValueAtTime(400, t + 0.08);
+        g.gain.setValueAtTime(0.4, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+        osc.connect(g);
+        g.connect(this.master);
+        osc.start(t);
+        osc.stop(t + 0.08);
+      }
+    }
+    const audio = new ProceduralAudio();
+
+    // Game variables
+    let socket = null;
+    let scene, camera, renderer;
+    let localPlayer = { x: 0, y: 0.5, z: 0, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, health: 100, shield: 50, fuel: 100 };
+    let remotePlayers = {};
+    let currentWeapon = 'ar';
+    let currentAmmo = 30, reserveAmmo = 120;
+    let isAiming = false, isSprinting = false, isJetpacking = false;
+    let isFirstPerson = false;
+    let keys = {};
+    let credits = 500;
+    let unlockedWeapons = ['ar'];
+
+    // Initialize socket connection
+    function initSocket() {
+      // Connect to same origin or port
+      socket = io();
+      
+      socket.on('rooms:list', (list) => {
+        renderServerList(list);
+      });
+
+      socket.on('game:init', (data) => {
+        document.getElementById('main-menu').style.display = 'none';
+        document.getElementById('hud-overlay').style.display = 'block';
+        requestPointerLock();
+      });
+
+      socket.on('world:tick', (data) => {
+        remotePlayers = data.players;
+      });
+
+      socket.on('player:damaged', (d) => {
+        if (d.victimId === socket.id) {
+          localPlayer.health = d.health;
+          localPlayer.shield = d.shield;
+          triggerDamageFlash();
+          updateHUD();
+        }
+      });
+
+      socket.on('player:killed', (d) => {
+        addKillfeed(d.killerName, d.victimName, d.weapon);
+        if (d.victimId === socket.id) {
+          triggerDeathScreen(d.killerName);
+        }
+      });
+
+      socket.on('player:respawned', (d) => {
+        if (d.id === socket.id) {
+          localPlayer.x = d.x;
+          localPlayer.y = d.y;
+          localPlayer.z = d.z;
+          localPlayer.health = 100;
+          localPlayer.shield = 50;
+          document.getElementById('death-modal').style.display = 'none';
+          updateHUD();
+        }
+      });
+    }
+
+    // Three.js Scene Setup
+    function init3D() {
+      const container = document.getElementById('canvas-container');
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x38bdf8); // Cielo azul brillante y soleado
+      scene.fog = new THREE.Fog(0x7dd3fc, 45, 240); // Neblina dorada solar
+
+      camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 400);
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.45;
+      container.appendChild(renderer.domElement);
+
+      // Sol radiante e Iluminación ambiental
+      const sunLight = new THREE.DirectionalLight(0xfffaed, 2.6); // Luz solar directa
+      sunLight.position.set(45, 80, 35);
+      sunLight.castShadow = true;
+      scene.add(sunLight);
+
+      const sunBounce = new THREE.DirectionalLight(0xffedd5, 1.3);
+      sunBounce.position.set(-35, 60, -35);
+      scene.add(sunBounce);
+
+      const ambient = new THREE.AmbientLight(0xffffff, 0.75);
+      scene.add(ambient);
+
+      const hemi = new THREE.HemisphereLight(0xbae6fd, 0x86efac, 1.2);
+      scene.add(hemi);
+
+      // Floor grid más claro y limpio
+      const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(160, 160),
+        new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4, metalness: 0.6 })
+      );
+      floor.rotation.x = -Math.PI / 2;
+      floor.receiveShadow = true;
+      scene.add(floor);
+
+      // Buildings
+      for (let i = 0; i < 12; i++) {
+        const b = new THREE.Mesh(
+          new THREE.BoxGeometry(10 + Math.random() * 8, 15 + Math.random() * 20, 10 + Math.random() * 8),
+          new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.3, metalness: 0.7 })
+        );
+        b.position.set((Math.random() - 0.5) * 100, 10, (Math.random() - 0.5) * 100);
+        b.castShadow = true;
+        scene.add(b);
+      }
+
+      // Input handlers
+      window.addEventListener('keydown', (e) => {
+        keys[e.code] = true;
+      });
+      window.addEventListener('keyup', (e) => keys[e.code] = false);
+      window.addEventListener('mousemove', (e) => {
+        if (document.pointerLockElement) {
+          localPlayer.yaw -= e.movementX * 0.0022;
+          localPlayer.pitch -= e.movementY * 0.0022;
+          localPlayer.pitch = Math.max(-1.45, Math.min(1.45, localPlayer.pitch));
+        }
+      });
+      window.addEventListener('mousedown', (e) => {
+        if (e.button === 0) fireWeapon();
+        if (e.button === 2) isAiming = true;
+      });
+      window.addEventListener('mouseup', (e) => {
+        if (e.button === 2) isAiming = false;
+      });
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      camera.rotation.order = 'YXZ';
+
+      // Loop
+      function animate() {
+        requestAnimationFrame(animate);
+        updatePhysics();
+        renderer.render(scene, camera);
+      }
+      animate();
+    }
+
+    function updatePhysics() {
+      if (localPlayer.health <= 0) return;
+
+      isSprinting = keys['ShiftLeft'] || keys['ShiftRight'];
+      const isCrouching = keys['ControlLeft'] || keys['ControlRight'] || keys['KeyC'];
+
+      // Apply camera rotation
+      camera.rotation.x = localPlayer.pitch;
+      camera.rotation.y = localPlayer.yaw;
+      camera.rotation.z = 0;
+
+      // Extract true forward and right vectors
+      const fwd = new THREE.Vector3();
+      camera.getWorldDirection(fwd);
+      fwd.y = 0;
+      fwd.normalize();
+
+      const rgt = new THREE.Vector3();
+      rgt.crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
+
+      let speed = isSprinting ? 0.35 : 0.22;
+      if (isCrouching) speed = 0.12;
+
+      let forward = 0, right = 0;
+      if (keys['KeyW']) forward += 1;
+      if (keys['KeyS']) forward -= 1;
+      if (keys['KeyA']) right -= 1; // A = Left
+      if (keys['KeyD']) right += 1; // D = Right
+
+      if (forward !== 0 || right !== 0) {
+        let dirX = fwd.x * forward + rgt.x * right;
+        let dirZ = fwd.z * forward + rgt.z * right;
+        const len = Math.hypot(dirX, dirZ);
+        if (len > 0.001) {
+          localPlayer.x += (dirX / len) * speed;
+          localPlayer.z += (dirZ / len) * speed;
+        }
+      }
+
+      if (keys['Space'] && localPlayer.y <= 0.55 && !isCrouching) {
+        localPlayer.vy = 6;
+      }
+
+      localPlayer.vy -= 0.3; // gravity
+      localPlayer.y = Math.max(0.5, localPlayer.y + localPlayer.vy * 0.05);
+      if (localPlayer.y <= 0.5) localPlayer.vy = 0;
+
+      // First-person camera placement at eye level
+      const eyeHeight = isCrouching ? 1.05 : 1.62;
+      camera.position.set(localPlayer.x, localPlayer.y + eyeHeight, localPlayer.z);
+
+      // Inform server
+      if (socket) {
+        socket.emit('player:sync', {
+          x: localPlayer.x, y: localPlayer.y, z: localPlayer.z,
+          rotationY: localPlayer.yaw, pitch: localPlayer.pitch,
+          isSprinting, isJetpacking, isAiming
+        });
+      }
+
+      updateHUD();
+      drawMinimap();
+    }
+
+    function fireWeapon() {
+      if (currentAmmo <= 0 || localPlayer.health <= 0) return;
+      currentAmmo--;
+      audio.playShoot(currentWeapon);
+      if (socket) {
+        socket.emit('player:shoot', {
+          origin: { x: localPlayer.x, y: localPlayer.y + 1.2, z: localPlayer.z },
+          direction: { x: Math.sin(localPlayer.yaw), y: Math.sin(localPlayer.pitch), z: Math.cos(localPlayer.yaw) },
+          weapon: currentWeapon
+        });
+      }
+      updateHUD();
+    }
+
+    function updateHUD() {
+      document.getElementById('hud-health-bar').style.width = localPlayer.health + '%';
+      document.getElementById('hud-health-val').innerText = localPlayer.health + ' / 100';
+      document.getElementById('hud-shield-bar').style.width = (localPlayer.shield * 2) + '%';
+      document.getElementById('hud-shield-val').innerText = localPlayer.shield + ' / 50';
+      document.getElementById('hud-fuel-bar').style.width = localPlayer.fuel + '%';
+      document.getElementById('hud-fuel-val').innerText = Math.round(localPlayer.fuel) + '%';
+      document.getElementById('hud-ammo-current').innerText = currentAmmo;
+      document.getElementById('hud-ammo-reserve').innerText = reserveAmmo;
+    }
+
+    function drawMinimap() {
+      const c = document.getElementById('minimap-canvas');
+      if (!c) return;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, 140, 140);
+      
+      // Local player
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath();
+      ctx.arc(70, 70, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Heading cone
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+      ctx.beginPath();
+      ctx.moveTo(70, 70);
+      ctx.lineTo(70 + Math.sin(localPlayer.yaw) * 16, 70 - Math.cos(localPlayer.yaw) * 16);
+      ctx.stroke();
+
+      // Remote blips
+      for (let id in remotePlayers) {
+        if (id === socket.id) continue;
+        const p = remotePlayers[id];
+        const relX = 70 + (p.x - localPlayer.x) * 1.2;
+        const relY = 70 + (p.z - localPlayer.z) * 1.2;
+        if (relX >= 0 && relX <= 140 && relY >= 0 && relY <= 140) {
+          ctx.fillStyle = p.isBot ? '#f43f5e' : '#eab308';
+          ctx.beginPath();
+          ctx.arc(relX, relY, 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    function triggerDamageFlash() {
+      const v = document.getElementById('damage-vignette');
+      v.style.opacity = '1';
+      setTimeout(() => v.style.opacity = '0', 200);
+    }
+
+    function triggerDeathScreen(killer) {
+      document.getElementById('death-killer-text').innerText = 'Eliminado por: ' + (killer || 'Rival');
+      document.getElementById('death-modal').style.display = 'flex';
+      let sec = 3;
+      document.getElementById('respawn-countdown').innerText = sec;
+      const interval = setInterval(() => {
+        sec--;
+        document.getElementById('respawn-countdown').innerText = sec;
+        if (sec <= 0) {
+          clearInterval(interval);
+          if (socket) socket.emit('player:respawn_request');
+        }
+      }, 1000);
+    }
+
+    function addKillfeed(killer, victim, weapon) {
+      const box = document.getElementById('killfeed-container');
+      const item = document.createElement('div');
+      item.style.cssText = 'background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 6px; font-size: 13px; color: #f1f5f9;';
+      item.innerHTML = `<span style="color:#38bdf8;font-weight:700;">${killer}</span> [${weapon.toUpperCase()}] <span style="color:#ef4444;">${victim}</span>`;
+      box.appendChild(item);
+      setTimeout(() => item.remove(), 4000);
+    }
+
+    function requestPointerLock() {
+      document.body.requestPointerLock();
+    }
+
+    function switchMenuTab(tab) {
+      ['play', 'servers', 'armory', 'settings'].forEach(t => {
+        document.getElementById('tab-content-' + t).style.display = (t === tab) ? 'block' : 'none';
+        const btn = document.getElementById('tab-btn-' + t);
+        if (t === tab) {
+          btn.className = 'btn-cyber';
+        } else {
+          btn.className = 'btn-dark';
+        }
+      });
+      if (tab === 'servers' && socket) {
+        socket.emit('get:rooms');
+      }
+    }
+
+    function startQuickPlay() {
+      const name = document.getElementById('input-player-name').value || 'Soldado';
+      const map = document.getElementById('select-play-map').value;
+      if (!socket) initSocket();
+      socket.emit('room:join', { roomId: 'cyber-arena-01', playerName: name });
+    }
+
+    function createCustomRoom() {
+      const name = document.getElementById('create-room-name').value || 'Sala de Combate';
+      const map = document.getElementById('create-room-map').value;
+      const max = parseInt(document.getElementById('create-room-max').value);
+      const bots = document.getElementById('create-room-bots').value === 'true';
+      if (!socket) initSocket();
+      socket.emit('room:create', { name, map, maxPlayers: max, enableBots: bots });
+      socket.once('room:created', (data) => {
+        const pName = document.getElementById('input-player-name').value || 'Comandante';
+        socket.emit('room:join', { roomId: data.roomId, playerName: pName });
+      });
+    }
+
+    function refreshServerList() {
+      if (socket) socket.emit('get:rooms');
+    }
+
+    function renderServerList(list) {
+      const c = document.getElementById('server-list-table');
+      c.innerHTML = '';
+      list.forEach(r => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:rgba(30,41,59,0.5); padding:10px 14px; border-radius:8px; border:1px solid rgba(255,255,255,0.06);';
+        row.innerHTML = `
+          <div>
+            <div style="font-weight:700; color:#38bdf8;">${r.name}</div>
+            <div style="font-size:12px; color:#94a3b8;">Mapa: ${r.map.toUpperCase()} · Jugadores: ${r.playerCount}/${r.maxPlayers}</div>
+          </div>
+          <button class="btn-cyber" style="padding:6px 14px; font-size:13px;" onclick="joinSpecificRoom('${r.id}')">UNIRSE</button>
+        `;
+        c.appendChild(row);
+      });
+    }
+
+    function joinSpecificRoom(roomId) {
+      const name = document.getElementById('input-player-name').value || 'Soldado';
+      if (!socket) initSocket();
+      socket.emit('room:join', { roomId, playerName: name });
+    }
+
+    // Start 3D on page load
+    window.onload = () => {
+      init3D();
+      initSocket();
+    };
+  </script>
+</body>
+</html>
